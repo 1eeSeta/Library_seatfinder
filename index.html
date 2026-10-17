@@ -59,20 +59,8 @@
 </main>
 <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <script>
-// Last API response supplied by the user. Keep it visible while refreshing or if upstream is slow.
-const lastKnownRooms=[
- {stdgCd:'1168000000',lclgvNm:'서울특별시 강남구',pblibId:'PLR004',pblibNm:'논현도서관',rdrmId:'1',rdrmNo:'1',rdrmNm:'집중학습실',rdrmTypeNm:'일반',bldgFlrExpln:'',nowVstrCnt:'9',tseatCnt:'62',useSeatCnt:'9',rsvtSeatCnt:'0',rmndSeatCnt:'53',totDt:'20261017110303'},
- {stdgCd:'1168000000',lclgvNm:'서울특별시 강남구',pblibId:'PLR004',pblibNm:'논현도서관',rdrmId:'2',rdrmNo:'2',rdrmNm:'노트북전용석',rdrmTypeNm:'일반',bldgFlrExpln:'',nowVstrCnt:'1',tseatCnt:'8',useSeatCnt:'1',rsvtSeatCnt:'0',rmndSeatCnt:'7',totDt:'20261017110303'},
- {stdgCd:'1168000000',lclgvNm:'서울특별시 강남구',pblibId:'PLR004',pblibNm:'논현도서관',rdrmId:'3',rdrmNo:'3',rdrmNm:'복도열람석',rdrmTypeNm:'일반',bldgFlrExpln:'',nowVstrCnt:'0',tseatCnt:'4',useSeatCnt:'0',rsvtSeatCnt:'0',rmndSeatCnt:'4',totDt:'20261017110303'},
- {stdgCd:'1168000000',lclgvNm:'서울특별시 강남구',pblibId:'PLR004',pblibNm:'논현도서관',rdrmId:'4',rdrmNo:'4',rdrmNm:'DVD감상실',rdrmTypeNm:'일반',bldgFlrExpln:'',nowVstrCnt:'0',tseatCnt:'2',useSeatCnt:'0',rsvtSeatCnt:'0',rmndSeatCnt:'2',totDt:'20261017110303'},
- {stdgCd:'1168000000',lclgvNm:'서울특별시 강남구',pblibId:'PLR004',pblibNm:'논현도서관',rdrmId:'5',rdrmNo:'5',rdrmNm:'원문검색',rdrmTypeNm:'일반',bldgFlrExpln:'',nowVstrCnt:'0',tseatCnt:'1',useSeatCnt:'0',rsvtSeatCnt:'0',rmndSeatCnt:'1',totDt:'20261017110303'},
- {stdgCd:'1168000000',lclgvNm:'서울특별시 강남구',pblibId:'PLR005',pblibNm:'대치도서관',rdrmId:'1',rdrmNo:'1',rdrmNm:'노트북석',rdrmTypeNm:'일반',bldgFlrExpln:'1',nowVstrCnt:'9',tseatCnt:'12',useSeatCnt:'9',rsvtSeatCnt:'0',rmndSeatCnt:'3',totDt:'20261017110302'},
- {stdgCd:'1168000000',lclgvNm:'서울특별시 강남구',pblibId:'PLR005',pblibNm:'대치도서관',rdrmId:'2',rdrmNo:'2',rdrmNm:'정보자료실',rdrmTypeNm:'일반',bldgFlrExpln:'1',nowVstrCnt:'0',tseatCnt:'2',useSeatCnt:'0',rsvtSeatCnt:'0',rmndSeatCnt:'2',totDt:'20261017110302'},
- {stdgCd:'1168000000',lclgvNm:'서울특별시 강남구',pblibId:'PLR005',pblibNm:'대치도서관',rdrmId:'3',rdrmNo:'3',rdrmNm:'집중열람실',rdrmTypeNm:'일반',bldgFlrExpln:'1',nowVstrCnt:'55',tseatCnt:'78',useSeatCnt:'55',rsvtSeatCnt:'0',rmndSeatCnt:'23',totDt:'20261017110302'},
- {stdgCd:'1168000000',lclgvNm:'서울특별시 강남구',pblibId:'PLR003',pblibNm:'도곡정보문화도서관',rdrmId:'1',rdrmNo:'1',rdrmNm:'5층 제1열람실',rdrmTypeNm:'일반',bldgFlrExpln:'1',nowVstrCnt:'28',tseatCnt:'108',useSeatCnt:'28',rsvtSeatCnt:'0',rmndSeatCnt:'80',totDt:'20261017110301'},
- {stdgCd:'1168000000',lclgvNm:'서울특별시 강남구',pblibId:'PLR003',pblibNm:'도곡정보문화도서관',rdrmId:'2',rdrmNo:'2',rdrmNm:'6층 제2열람실',rdrmTypeNm:'일반',bldgFlrExpln:'1',nowVstrCnt:'37',tseatCnt:'136',useSeatCnt:'37',rsvtSeatCnt:'0',rmndSeatCnt:'99',totDt:'20261017110301'}
-];
-let rooms=[...lastKnownRooms];
+// Seat data must come from the scheduled server snapshot; never present the old sample as live.
+let rooms=[];
 const lastKnownLibraryInfo=[
  {stdgCd:'1168000000',pblibId:'PLR004',pblibNm:'논현도서관',pblibRoadNmAddr:'서울특별시 강남구 학동로43길 17',lat:'37.5172768000',lot:'127.0372170000'},
  {stdgCd:'1168000000',pblibId:'PLR005',pblibNm:'대치도서관',pblibRoadNmAddr:'서울특별시 강남구 삼성로 212',lat:'37.4975780000',lot:'127.0654790000'},
@@ -114,6 +102,9 @@ async function refreshSeats(){
   if(error.message.includes('정기 갱신')){
    status.textContent=rooms.length?'이전 데이터 표시 · 다음 5분 경계 갱신 대기':'다음 5분 경계에 첫 데이터 갱신';
    document.querySelector('.notice').textContent='5분마다 자동 갱신 · 서버가 다음 5분 경계에 공공 API를 조회합니다.';
+  }else if(location.protocol==='file:'){
+   status.textContent='서버 연결 필요';
+   document.querySelector('.notice').textContent='HTML 파일을 직접 열면 실시간 데이터를 불러올 수 없습니다. 로컬 서버 주소 또는 배포된 웹사이트로 접속해 주세요.';
   }else{
    status.textContent=rooms.length?'갱신 실패 · 저장된 응답 표시':'API 연결 오류';
    document.querySelector('.notice').textContent=`데이터를 불러오지 못했어요. ${error.message}`;
