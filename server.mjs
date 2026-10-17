@@ -24,8 +24,27 @@ const libraryInfoCache = new Map();
 const libraryInfoInFlight = new Map();
 const cacheTtlMs = 5 * 60 * 1000;
 const nextCacheBoundary = (time = Date.now()) => (Math.floor(time / cacheTtlMs) + 1) * cacheTtlMs;
+// Leave headroom below the portal's 5,000-call daily quota for retries or
+// other consumers of the same key. Count every paginated HTTP request.
+const dailyApiCallLimit = 4500;
+let apiCallDay = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date());
+let apiCallsToday = 0;
 const cache = new Map();
 const inFlight = new Map();
+
+function reserveApiCall() {
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date());
+  if (today !== apiCallDay) {
+    apiCallDay = today;
+    apiCallsToday = 0;
+  }
+  if (apiCallsToday >= dailyApiCallLimit) {
+    const error = new Error(`일일 API 안전 한도(${dailyApiCallLimit}회)에 도달했습니다.`);
+    error.status = 503;
+    throw error;
+  }
+  apiCallsToday += 1;
+}
 
 function send(res, status, payload, type = 'application/json; charset=utf-8') {
   res.writeHead(status, { 'content-type': type, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
@@ -56,6 +75,7 @@ async function loadApi(stdgCd, endpoint, cacheStore, pendingStore) {
     let resultCode = 'K0';
     let resultMsg = 'NORMAL_SERVICE';
     for (let pageNo = 1; pageNo <= 20; pageNo += 1) {
+      reserveApiCall();
       const url = new URL(endpoint);
       url.search = new URLSearchParams({ serviceKey: key, pageNo: String(pageNo), numOfRows: '100', type: 'JSON', stdgCd }).toString();
       const response = await fetch(url, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(15000) });
@@ -93,8 +113,8 @@ async function loadApi(stdgCd, endpoint, cacheStore, pendingStore) {
 
 const monitoredDistricts = ['1168000000', '1121500000', '1162000000', '1126000000', '1130500000'];
 
-async function refreshAllDistricts() {
-  console.log('5분 경계 정기 갱신 시작:', new Date().toISOString());
+async function refreshAllDistricts(reason) {
+  console.log(`${reason} 공공 API 갱신 시작:`, new Date().toISOString());
   const results = await Promise.allSettled(monitoredDistricts.map(async stdgCd => {
     const [seats, libraries] = await Promise.all([
       loadApi(stdgCd, apiBase, cache, inFlight),
@@ -117,7 +137,7 @@ function scheduleBoundaryRefresh() {
   console.log('다음 공공 API 정기 갱신:', new Date(next).toISOString());
   setTimeout(() => {
     scheduleBoundaryRefresh();
-    void refreshAllDistricts();
+    void refreshAllDistricts('5분 경계');
   }, delay);
 }
 
@@ -172,6 +192,9 @@ server.listen(port, host, () => {
   console.log(`빈자리 레이더 실행 중: http://${host}:${port}`);
   console.log('API key:', process.env.DATA_GO_KR_SERVICE_KEY ? '설정됨' : '미설정');
   scheduleBoundaryRefresh();
+  // Warm the in-memory snapshot immediately after every cold start. The
+  // regular five-minute boundary cadence continues after this initial fetch.
+  void refreshAllDistricts('서버 시작 직후');
 });
 
 
