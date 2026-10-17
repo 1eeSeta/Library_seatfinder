@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: seoul-library-seat-radar
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATA_GO_KR_SERVICE_KEY
+        sync: false
