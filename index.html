@@ -48,14 +48,14 @@
 <main class="shell">
 <header class="topbar"><div class="brand"><span class="brandmark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="10.8" cy="10.8" r="6.4"/><path d="m16 16 4 4M8.5 10.8h4.6m-2.3-2.3v4.6"/></svg></span>빈자리 레이더</div><div class="top-meta">서울특별시 5개구 공공도서관</div></header>
 <section class="hero"><div><div class="eyebrow">SEOUL · LIBRARY SEAT FINDER</div><h1>공부할 자리,<br>지금 어디에 있을까?</h1><p>강남구와 가까운 4개 자치구 도서관의 남은 좌석을 확인해 보세요.</p></div><div class="update"><i class="pulse"></i><span>API 연결 중</span></div></section>
-<div class="notice"><span class="notice-icon">ⓘ</span><span><strong>매시 00·05·10분 기준 갱신</strong> 공공데이터 API에서 좌석 정보를 불러옵니다. 위치는 이 브라우저에서만 계산하며 서버로 전송하지 않습니다.</span></div>
+<div class="notice"><span class="notice-icon">ⓘ</span><span><strong>5분마다 자동 갱신</strong> 공공데이터 API에서 좌석 정보를 불러옵니다. 위치는 이 브라우저에서만 계산하며 서버로 전송하지 않습니다.</span></div>
 <div class="viewbar"><div class="view-toggle" role="group" aria-label="보기 방식"><button id="listView" class="view-btn active" type="button">목록</button><button id="mapView" class="view-btn" type="button">지도</button></div><div class="distance-controls"><button id="useLocation" class="location-btn" type="button">내 위치로 거리 계산</button><span id="distanceBasis">거리 기준: 서울특별시청</span></div></div>
 <section class="summary" aria-label="좌석 요약"><div class="stat"><div><div class="stat-label">표시 중인 도서관</div><div class="stat-note">검색·지역 조건 기준</div></div><div class="stat-value" id="libraryCount">0<small>곳</small></div></div><div class="stat"><div><div class="stat-label">전체 빈자리</div><div class="stat-note">선택한 도서관 전체 합계</div></div><div class="stat-value" id="availableTotal">0<small>석</small></div></div><div class="stat"><div><div class="stat-label">좌석 여유 많은 곳</div><div class="stat-note" id="bestLibraryNote">남은 좌석 수 기준</div></div><div class="stat-value" id="bestLibrary" style="font-size:19px">논현도서관</div></div></section>
 <div class="toolbar"><label class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="10.8" cy="10.8" r="6.4"/><path d="m16 16 4 4"/></svg><input id="search" type="search" placeholder="도서관 이름이나 지역 검색" aria-label="도서관 검색"></label><div class="filters" id="filters"><button class="filter active" data-district="전체">전체</button><button class="filter" data-district="강남구">강남</button><button class="filter" data-district="관악구">관악</button><button class="filter" data-district="광진구">광진</button><button class="filter" data-district="중랑구">중랑</button><button class="filter" data-district="강북구">강북</button></div><label class="sort-control">정렬 <select id="sortOrder" aria-label="도서관 정렬"><option value="available">여유 많은 순</option><option value="distance">거리순</option></select></label><div class="count"><b id="resultCount">3</b>개 도서관</div></div>
 <div id="mapPanel" hidden aria-label="도서관 지도"></div>
 <div id="mapUnlocated" class="map-unlocated" hidden></div>
 <section class="cards" id="cards" aria-live="polite"></section>
-<footer class="footer">선택된 5개 자치구 API 좌석 정보를 매시 00·05·10분 기준으로 갱신합니다. 거리는 도로 이동거리가 아닌 좌표 기반 직선거리이며, 위치 권한을 허용하지 않으면 서울특별시청을 기준으로 계산합니다.<br><span>피드백: <a href="mailto:seaotter880@gmail.com?subject=%EB%B9%88%EC%9E%90%EB%A6%AC%20%EB%A0%88%EC%9D%B4%EB%8D%94%20%ED%94%BC%EB%93%9C%EB%B0%B1">seaotter880@gmail.com</a></span></footer>
+<footer class="footer">선택된 5개 자치구 API 좌석 정보를 5분마다 갱신합니다. (매시 00·05·10·15분 등 5분 경계) 거리는 도로 이동거리가 아닌 좌표 기반 직선거리이며, 위치 권한을 허용하지 않으면 서울특별시청을 기준으로 계산합니다.<br><span>피드백: <a href="mailto:seaotter880@gmail.com?subject=%EB%B9%88%EC%9E%90%EB%A6%AC%20%EB%A0%88%EC%9D%B4%EB%8D%94%20%ED%94%BC%EB%93%9C%EB%B0%B1">seaotter880@gmail.com</a></span></footer>
 </main>
 <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <script>
@@ -109,10 +109,15 @@ async function refreshSeats(){
   const time=new Intl.DateTimeFormat('ko-KR',{hour:'2-digit',minute:'2-digit'}).format(new Date(data.fetchedAt||Date.now()));
   const activeDistrictCount=(data.districts||[]).filter(d=>Number(d.totalCount)>0).length;const infoCount=libraryInfo.length;
   status.textContent=`API 연결 · ${activeDistrictCount}개 구 ${rooms.length}/${count}개 열람실 · 도서관 위치 ${infoCount}곳 · ${time} 갱신`;
-  document.querySelector('.notice').innerHTML=`<span class="notice-icon">ⓘ</span><span><strong>매시 00·05·10분 자동 갱신</strong> · 현재 ${rooms.length}/${count}개 열람실 데이터를 표시하고 있습니다.</span>`;
+  document.querySelector('.notice').innerHTML=`<span class="notice-icon">ⓘ</span><span><strong>5분마다 자동 갱신</strong> · 현재 ${rooms.length}/${count}개 열람실 데이터를 표시하고 있습니다.</span>`;
  }catch(error){
-  status.textContent=rooms.length?'갱신 실패 · 저장된 응답 표시':'API 연결 오류';
-  document.querySelector('.notice').textContent=`데이터를 불러오지 못했어요. ${error.message}`;
+  if(error.message.includes('정기 갱신')){
+   status.textContent=rooms.length?'이전 데이터 표시 · 다음 5분 경계 갱신 대기':'다음 5분 경계에 첫 데이터 갱신';
+   document.querySelector('.notice').textContent='5분마다 자동 갱신 · 서버가 다음 5분 경계에 공공 API를 조회합니다.';
+  }else{
+   status.textContent=rooms.length?'갱신 실패 · 저장된 응답 표시':'API 연결 오류';
+   document.querySelector('.notice').textContent=`데이터를 불러오지 못했어요. ${error.message}`;
+  }
  }
 }
 refreshSeats();

@@ -23,6 +23,7 @@ const libraryInfoBase = 'https://apis.data.go.kr/B551982/plr_v2/info_v2';
 const libraryInfoCache = new Map();
 const libraryInfoInFlight = new Map();
 const cacheTtlMs = 5 * 60 * 1000;
+const nextCacheBoundary = (time = Date.now()) => (Math.floor(time / cacheTtlMs) + 1) * cacheTtlMs;
 const cache = new Map();
 const inFlight = new Map();
 
@@ -46,7 +47,7 @@ async function loadApi(stdgCd, endpoint, cacheStore, pendingStore) {
   }
   const now = Date.now();
   const cached = cacheStore.get(stdgCd);
-  if (cached && now - cached.fetchedAt < cacheTtlMs) return cached.payload;
+  if (cached && now < cached.expiresAt) return cached.payload;
   if (pendingStore.has(stdgCd)) return pendingStore.get(stdgCd);
 
   const task = (async () => {
@@ -70,7 +71,7 @@ async function loadApi(stdgCd, endpoint, cacheStore, pendingStore) {
       if (resultCode !== 'K0' && resultCode !== '00') {
         if ((resultCode === 'K3' || resultMsg === 'NODATA_ERROR') && pageNo === 1) {
           const payload = { stdgCd, totalCount: 0, items: [], fetchedAt: new Date().toISOString(), resultCode, resultMsg: resultMsg || 'NODATA_ERROR' };
-          cacheStore.set(stdgCd, { fetchedAt: Date.now(), payload });
+          cacheStore.set(stdgCd, { expiresAt: nextCacheBoundary(), payload });
           return payload;
         }
         if ((resultCode === 'K3' || resultMsg === 'NODATA_ERROR') && allItems.length) break;
@@ -82,7 +83,7 @@ async function loadApi(stdgCd, endpoint, cacheStore, pendingStore) {
       if (allItems.length >= totalCount || pageItems.length === 0) break;
     }
     const payload = { stdgCd, totalCount, items: allItems, fetchedAt: new Date().toISOString(), resultCode, resultMsg: resultMsg || 'NORMAL_SERVICE' };
-    cacheStore.set(stdgCd, { fetchedAt: Date.now(), payload });
+    cacheStore.set(stdgCd, { expiresAt: nextCacheBoundary(), payload });
     return payload;
   })();
   pendingStore.set(stdgCd, task);
@@ -90,8 +91,35 @@ async function loadApi(stdgCd, endpoint, cacheStore, pendingStore) {
   finally { pendingStore.delete(stdgCd); }
 }
 
-async function loadSeats(stdgCd) { return loadApi(stdgCd, apiBase, cache, inFlight); }
-async function loadLibraries(stdgCd) { return loadApi(stdgCd, libraryInfoBase, libraryInfoCache, libraryInfoInFlight); }
+const monitoredDistricts = ['1168000000', '1121500000', '1162000000', '1126000000', '1130500000'];
+
+async function refreshAllDistricts() {
+  console.log('5분 경계 정기 갱신 시작:', new Date().toISOString());
+  const results = await Promise.allSettled(monitoredDistricts.map(async stdgCd => {
+    const [seats, libraries] = await Promise.all([
+      loadApi(stdgCd, apiBase, cache, inFlight),
+      loadApi(stdgCd, libraryInfoBase, libraryInfoCache, libraryInfoInFlight),
+    ]);
+    return { stdgCd, seats: seats.totalCount, libraries: libraries.totalCount };
+  }));
+  for (const result of results) {
+    if (result.status === 'fulfilled') {
+      console.log('정기 갱신 완료:', result.value.stdgCd, '열람실', result.value.seats, '도서관', result.value.libraries);
+    } else {
+      console.error('정기 갱신 실패:', result.reason?.message || result.reason);
+    }
+  }
+}
+
+function scheduleBoundaryRefresh() {
+  const next = nextCacheBoundary();
+  const delay = Math.max(0, next - Date.now());
+  console.log('다음 공공 API 정기 갱신:', new Date(next).toISOString());
+  setTimeout(() => {
+    scheduleBoundaryRefresh();
+    void refreshAllDistricts();
+  }, delay);
+}
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || `${host}:${port}`}`);
@@ -100,26 +128,34 @@ const server = http.createServer(async (req, res) => {
     const rawCodes = url.searchParams.get('stdgCds');
     const codes = rawCodes ? [...new Set(rawCodes.split(',').map(code => code.trim()))] : [url.searchParams.get('stdgCd') || '1168000000'];
     if (codes.length > 5 || codes.some(code => !/^\d{10}$/.test(code))) return send(res, 400, { error: '자치구 코드는 최대 5개의 숫자 10자리여야 합니다.' });
-    const settledSeats = await Promise.allSettled(codes.map(loadSeats));
-    const settledLibraries = await Promise.allSettled(codes.map(loadLibraries));
-    const failedSeats = settledSeats.find(result => result.status === 'rejected');
-    if (settledSeats.every(result => result.status === 'rejected')) return send(res, failedSeats.reason.status || 502, { error: failedSeats.reason.message });
-    const seats = settledSeats.flatMap(result => result.status === 'fulfilled' ? [result.value] : []);
-    const libraries = settledLibraries.flatMap(result => result.status === 'fulfilled' ? result.value.items || [] : []);
-    const districtResults = codes.map((stdgCd, index) => ({
-      stdgCd,
-      totalCount: settledSeats[index].status === 'fulfilled' ? settledSeats[index].value.totalCount : 0,
-      resultCode: settledSeats[index].status === 'fulfilled' ? settledSeats[index].value.resultCode : 'ERROR',
-      resultMsg: settledSeats[index].status === 'rejected' ? settledSeats[index].reason.message : settledSeats[index].value.resultMsg,
-      infoResultCode: settledLibraries[index].status === 'fulfilled' ? settledLibraries[index].value.resultCode : 'ERROR',
-      infoResultMsg: settledLibraries[index].status === 'rejected' ? settledLibraries[index].reason.message : settledLibraries[index].value.resultMsg,
-    }));
+    const seats = codes.map(stdgCd => cache.get(stdgCd)?.payload).filter(Boolean);
+    const libraryPayloads = codes.map(stdgCd => libraryInfoCache.get(stdgCd)?.payload).filter(Boolean);
+    if (!seats.length) return send(res, 503, {
+      error: '서버가 다음 5분 경계의 정기 갱신을 준비하고 있습니다.',
+      nextRefreshAt: new Date(nextCacheBoundary()).toISOString(),
+    });
+    const seatByCode = new Map(codes.map(stdgCd => [stdgCd, cache.get(stdgCd)?.payload]));
+    const librariesByCode = new Map(codes.map(stdgCd => [stdgCd, libraryInfoCache.get(stdgCd)?.payload]));
+    const districtResults = codes.map(stdgCd => {
+      const seat = seatByCode.get(stdgCd);
+      const info = librariesByCode.get(stdgCd);
+      return {
+        stdgCd,
+        totalCount: seat?.totalCount || 0,
+        resultCode: seat?.resultCode || 'WAITING',
+        resultMsg: seat?.resultMsg || '정기 갱신 대기 중',
+        infoResultCode: info?.resultCode || 'WAITING',
+        infoResultMsg: info?.resultMsg || '정기 갱신 대기 중',
+      };
+    });
+    const payloads = [...seats, ...libraryPayloads];
+    const fetchedAt = payloads.map(data => data.fetchedAt).filter(Boolean).sort().at(-1) || new Date().toISOString();
     return send(res, 200, {
       stdgCds: codes,
       totalCount: seats.reduce((sum, data) => sum + Number(data.totalCount || 0), 0),
-      items: seats.flatMap(data => data.items || []),
-      libraries,
-      fetchedAt: new Date().toISOString(),
+      items: codes.flatMap(stdgCd => seatByCode.get(stdgCd)?.items || []),
+      libraries: codes.flatMap(stdgCd => librariesByCode.get(stdgCd)?.items || []),
+      fetchedAt,
       districts: districtResults,
     });
   }
@@ -135,6 +171,7 @@ const server = http.createServer(async (req, res) => {
 server.listen(port, host, () => {
   console.log(`빈자리 레이더 실행 중: http://${host}:${port}`);
   console.log('API key:', process.env.DATA_GO_KR_SERVICE_KEY ? '설정됨' : '미설정');
+  scheduleBoundaryRefresh();
 });
 
 
