@@ -109,7 +109,7 @@ async function refreshSeats(){
   const activeDistrictCount=(data.districts||[]).filter(d=>Number(d.totalCount)>0).length;const publicLibraryCount=new Set(rooms.map(item=>String(item.stdgCd)+':'+String(item.pblibId))).size;
   const visibleRoomCount=groupedRows().reduce((sum,library)=>sum+roomsForDisplay(library).length,0);
   status.textContent=`API 연결 · ${activeDistrictCount}개 구 화면 ${visibleRoomCount}개 열람실 · 원본 ${rooms.length}/${count}개 기록 · 공공도서관 ${publicLibraryCount}곳 · ${time} 조회`;
-  document.querySelector('.notice').innerHTML=`<span class="notice-icon">ⓘ</span><span><strong>5분마다 자동 조회</strong> · 화면 열람실 ${visibleRoomCount}개 · 원본 기록 ${rooms.length}/${count}개입니다. 잔여 좌석은 제공된 좌석 현황 값을 사용하며, 자료 기준 시각과 서버 조회 시각은 다를 수 있습니다.</span>`;
+  document.querySelector('.notice').innerHTML=`<span class="notice-icon">ⓘ</span><span><strong>5분마다 자동 조회</strong> · 현재 열람실 ${visibleRoomCount}개 집계중입니다. 잔여 좌석은 제공된 좌석 현황 값을 사용하며, 자료 기준 시각과 서버 조회 시각은 다를 수 있습니다.</span>`;
  }catch(error){
   if(error.message.includes('정기 갱신')){
    status.textContent=rooms.length?'이전 데이터 표시 · 다음 5분 경계 갱신 대기':'다음 5분 경계에 첫 데이터 갱신';
